@@ -1,4 +1,4 @@
-# This repository is FastDec combined with Exp-ElGamal additively homomorphic encryption scheme.
+# This repository is FastECDLP combined with Exp-ElGamal additively homomorphic encryption scheme.
 
   
 (1) go run genlist.go 
