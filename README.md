@@ -5,6 +5,6 @@
 (2) go run test.go
 
 
-If you have any questions, please contact: s200201071@stu.cqupt.edu.cn
+If you have any question, please contact: s200201071@stu.cqupt.edu.cn
 
 
