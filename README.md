@@ -4,6 +4,8 @@
 (1) go run genlist.go 
 (2) go run test.go
 
+# papar url: https://eprint.iacr.org/2022/1573
+
 
 If you have any question, please contact: s200201071@stu.cqupt.edu.cn
 
