@@ -12,28 +12,33 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/panjf2000/ants"
 )
 
-var Ilen = 10 // l2-1
-var Jlen = 24 // l1-1
-var Threadnum = 1
-var TestNum = 1000
+const (
+	Ilen      = 10   // l2-1
+	Imax      = 1024 // 1<< Ilen
+	Treelen   = 2048 // imax*2
+	TestNum   = 1000
+	Jlen      = 24       // l1-1
+	Jmax      = 16777216 // 1<<Jlen
+	cuckoolen = 21810381 //jmax*1.3
+)
+
+var Threadnum = 8
+
+// var Routinenum = 8
+var WG sync.WaitGroup
 var IsParTree = 0
 var IsNormal = 0
-var imax = 1 << Ilen
-var jmax = 1 << Jlen
-var Mmax = imax * jmax * 2
+
+var Mmax = Imax * Jmax * 2
 var mflag = int64(Mmax)
 var c = S256()
 
-var T1 = Op_NewCuckoo(Jlen)
+var T1 = Op_NewCuckoo()
 
-var T2x = make([]*FieldVal, imax, imax)
-var T2y = make([]*FieldVal, imax, imax)
-var ZTree = make([]*FieldVal, imax*2, imax*2)
-var ZinvTree = make([]*FieldVal, imax*2, imax*2)
+var T2x [Imax]FieldVal
+var T2y [Imax]FieldVal
 
 var MapT1 map[uint64]uint32
 
@@ -63,28 +68,27 @@ type FieldCipher struct {
 	c2z *FieldVal
 }
 
-func BuildTree(zs []*FieldVal) (root *FieldVal) {
-	for i := 0; i < imax; i++ {
+func BuildTree(zs []*FieldVal) [Treelen]*FieldVal {
+	var ZTree [Treelen]*FieldVal
+	for i := 0; i < Imax; i++ {
 		ZTree[i] = zs[i]
 	}
-	offset := imax
-	treelen := imax*2 - 3
-	treelen1 := treelen - 1
+	offset := Imax
+	treelen := Imax*2 - 3
+	//treelen1 := treelen - 1
 	for i := 0; i < treelen; i += 2 {
 		z := new(FieldVal)
 		zmult := z.Mul2(ZTree[i], ZTree[i+1])
 		//zmult.Normalize()
 		ZTree[offset] = zmult
 		offset = offset + 1
-		if i == treelen1 {
-			root = zmult
-		}
 	}
-	return root
+	return ZTree
 }
 
-func GetInvTree(rootinv *FieldVal) {
-	treelen := imax*2 - 2
+func GetInvTree(rootinv *FieldVal, ZTree [Treelen]*FieldVal) [Treelen]*FieldVal {
+	var ZinvTree [Treelen]*FieldVal
+	treelen := Imax*2 - 2
 	prevfloorflag := treelen
 	prevfloornum := 1
 	thisfloorflag := treelen
@@ -103,115 +107,7 @@ func GetInvTree(rootinv *FieldVal) {
 		prevfloorflag = thisfloorflag
 		prevfloornum = prevfloornum * 2
 	}
-}
-
-/*
-func T1Mul(offset int, N1 *FieldVal, N2 *FieldVal, overthreadnum chan int) {
-	z := new(FieldVal)
-	ZTree[offset] = z.Mul2(N1, N2)
-	overthreadnum <- 1
-	//<-maxthreadnum
-}
-*/
-
-type T1Mul func()
-
-func taskFuncWrapper(index [3]int, wg *sync.WaitGroup) T1Mul {
-	return func() {
-		z := new(FieldVal)
-		ZTree[index[0]] = z.Mul2(ZTree[index[1]], ZTree[index[2]])
-		wg.Done()
-	}
-}
-
-func ParBuildTree(zs []*FieldVal) (root *FieldVal) {
-	for i := 0; i < imax; i++ {
-		ZTree[i] = zs[i]
-	}
-	offset := imax
-	levelnum := imax
-	i := 0
-	var wg sync.WaitGroup
-	for l := 1; l <= Ilen; l++ {
-		levelnum = levelnum / 2
-		//overthreadnum := make(chan int, levelnum)
-		//maxthreadnum := make(chan int, Threadnum)
-		p, _ := ants.NewPool(Threadnum, ants.WithMaxBlockingTasks(levelnum-Threadnum))
-		defer p.Release()
-		wg.Add(levelnum)
-		for j := 0; j < levelnum; j++ {
-			//maxthreadnum <- 1
-			var index [3]int
-			index[0] = offset
-			index[1] = i
-			index[2] = i + 1
-			p.Submit(taskFuncWrapper(index, &wg))
-			offset = offset + 1
-			i = i + 2
-		}
-		wg.Wait()
-	}
-	root = ZTree[imax*2-2]
-	return root
-}
-
-/*
-func ParBuildTree(zs []*FieldVal) (root *FieldVal) {
-	for i := 0; i < imax; i++ {
-		ZTree[i] = zs[i]
-	}
-	offset := imax
-	levelnum := imax
-	i := 0
-	for l := 1; l <= Ilen; l++ {
-		levelnum = levelnum / 2
-		overthreadnum := make(chan int, levelnum)
-		//maxthreadnum := make(chan int, Threadnum)
-		for j := 0; j < levelnum; j++ {
-			//maxthreadnum <- 1
-			go T1Mul(offset, ZTree[i], ZTree[i+1], overthreadnum)
-			offset = offset + 1
-			i = i + 2
-		}
-		for k := 0; k < levelnum; k++ {
-			<-overthreadnum
-		}
-	}
-	root = ZTree[imax*2-2]
-	return root
-}
-*/
-
-func T2Mul(thisindex int, N1 *FieldVal, N2 *FieldVal, overthreadnum chan int) {
-	z := new(FieldVal)
-	ZinvTree[thisindex] = z.Mul2(N1, N2)
-	overthreadnum <- 1
-	//<-maxthreadnum
-}
-
-func ParGetInvTree(rootinv *FieldVal) {
-	treelen := imax*2 - 2
-	prevfloorflag := treelen
-	prevfloornum := 1
-	thisfloorflag := treelen
-	treeroot_inv := new(FieldVal)
-	treeroot_inv.Set(rootinv)
-	ZinvTree[prevfloorflag] = treeroot_inv
-	for i := 0; i < Ilen; i++ {
-		thisfloornum := prevfloornum * 2
-		thisfloorflag = prevfloorflag - thisfloornum
-		overthreadnum := make(chan int, thisfloornum)
-		for f := 0; f < thisfloornum; f++ {
-			thisindex := f + thisfloorflag
-			ztreeindex := thisindex ^ 1
-			go T2Mul(thisindex, ZTree[ztreeindex], ZinvTree[prevfloorflag+(f/2)], overthreadnum)
-		}
-		for k := 0; k < thisfloornum; k++ {
-			<-overthreadnum
-		}
-		prevfloorflag = thisfloorflag
-		prevfloornum = prevfloornum * 2
-	}
+	return ZinvTree
 }
 
 func Encrypt(pubkey *PublicKey, m *big.Int) *Cipher {
@@ -272,7 +168,8 @@ func BytesToUint32(b []byte) Hash {
 	return Hash(b[3]) | Hash(b[2])<<8 | Hash(b[1])<<16 | Hash(b[0])<<24
 }
 
-func GetM(mGx *big.Int, p *FieldVal, fmGx, fmGy *FieldVal, t, start, end, jmax int, m_new []int64, m_bool []bool, overthreadnum chan int) {
+func GetM(mGx *big.Int, ZinvTree [Treelen]*FieldVal, p *FieldVal, fmGx, fmGy *FieldVal, t, start, end, jmax int, m_new []int64, m_bool []bool, overthreadnum chan int) {
+	//time.Sleep(time.Duration(4) * time.Second)
 	for j := start; j < end; j++ {
 		if j == 0 {
 			leftxbytes := mGx.Bytes()
@@ -297,7 +194,7 @@ func GetM(mGx *big.Int, p *FieldVal, fmGx, fmGy *FieldVal, t, start, end, jmax i
 			ft2y := new(FieldVal).SetByteSlice(t2y.Bytes())
 		*/
 
-		leftx, invleftx := c.NewGetx3(fmGx, fmGy, ft2x, ft2y, ZinvTree[j], p)
+		leftx, invleftx := c.NewGetx3(fmGx, fmGy, &ft2x, &ft2y, ZinvTree[j], p)
 		leftxbytes := leftx.Bytes()
 
 		i, ok := T1.Op_search(leftxbytes)
@@ -356,43 +253,43 @@ func ParDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 	if skc1x.Cmp(cipher.c2x) == 0 {
 		return zero, ""
 	}
+	//ZTree := make([]*FieldVal, Imax*2, Imax*2)
+	//ZinvTree := make([]*FieldVal, Imax*2, Imax*2)
+	//var ZTree [Treelen]*FieldVal
+	//var ZinvTree [Treelen]*FieldVal
 	inv_skc1y := new(big.Int)
 	inv_skc1y.Add(c.P, inv_skc1y)
 	inv_skc1y.Sub(inv_skc1y, skc1y)
 	mGx, mGy := c.Add(cipher.c2x, cipher.c2y, skc1x, inv_skc1y)
 	//fmt.Println(mGx)
 	fmGx, fmGy := c.bigAffineToField(mGx, mGy)
-	zs := make([]*FieldVal, imax)
-	for i := 0; i < imax; i++ {
+	zs := make([]*FieldVal, Imax)
+	for i := 0; i < Imax; i++ {
 		ft2x := T2x[i]
-		zs[i] = c.Getz3(fmGx, ft2x)
+		zs[i] = c.Getz3(fmGx, &ft2x)
 		zs[i].Normalize()
 		if zs[i].Equals(fieldZero) == true {
-			m = int64(jmax*2) * int64(i+1)
+			m = int64(Jmax*2) * int64(i+1)
 			mbigint := big.NewInt(m)
 			_, TestmGy := c.ScalarBaseMult(mbigint.Bytes())
 			r1 := mGx.Cmp(TestmGy)
 			if r1 == 0 {
+				WG.Done()
 				return big.NewInt(m), "secuess"
 			}
+			WG.Done()
 			return new(big.Int).Neg(mbigint), "secuess"
 		}
 	}
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	if IsParTree == 1 {
-		treeroot := ParBuildTree(zs)
-		treeroot_inv := new(FieldVal).Set(treeroot).Inverse()
-		ParGetInvTree(treeroot_inv)
-
-	} else {
-		treeroot := BuildTree(zs)
-		treeroot_inv := new(FieldVal).Set(treeroot).Inverse()
-		GetInvTree(treeroot_inv)
-	}
+	//runtime.GOMAXPROCS(runtime.NumCPU())
+	runtime.GOMAXPROCS(Threadnum)
+	ZTree := BuildTree(zs)
+	treeroot_inv := new(FieldVal).Set(ZTree[Treelen-2]).Inverse()
+	ZinvTree := GetInvTree(treeroot_inv, ZTree)
 	p := new(FieldVal).SetByteSlice(c.P.Bytes())
-	//runtime.GOMAXPROCS(Threadnum)
+
 	overthreadnum := make(chan int, Threadnum)
-	batch := imax / (Threadnum)
+	batch := Imax / (Threadnum)
 	m_new := make([]int64, Threadnum)
 	m_bool := make([]bool, Threadnum)
 	for t := 0; t < Threadnum; t++ {
@@ -401,7 +298,7 @@ func ParDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 	}
 
 	for t := 0; t < Threadnum; t++ {
-		go GetM(mGx, p, fmGx, fmGy, t, t*batch, (t+1)*batch, jmax, m_new, m_bool, overthreadnum)
+		go GetM(mGx, ZinvTree, p, fmGx, fmGy, t, t*batch, (t+1)*batch, Jmax, m_new, m_bool, overthreadnum)
 	}
 
 	for i := 0; i < Threadnum; i++ {
@@ -418,12 +315,13 @@ func ParDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 				if acc_c > 1 {
 					fmt.Println("getM 多次", acc_c)
 				}
-
+				WG.Done()
 				return big.NewInt(m), "sucess"
 			}
 
 		}
 	}
+	WG.Done()
 	fmt.Println("解密失败", acc_c)
 	return big.NewInt(0), "decrypt error 2"
 }
@@ -449,7 +347,7 @@ func NormalDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 	inv_skc1y.Sub(inv_skc1y, skc1y)
 	mGx, mGy := c.Add(cipher.c2x, cipher.c2y, skc1x, inv_skc1y)
 	start := time.Now()
-	for j := 0; j < imax; j++ {
+	for j := 0; j < Imax; j++ {
 		if j == 0 {
 			// hash time
 			leftxbytes := mGx.Bytes()[:8]
@@ -473,7 +371,7 @@ func NormalDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 		x64 := binary.BigEndian.Uint64(leftxbytes)
 		i, ok := MapT1[x64]
 		if ok {
-			m = int64(j)*int64(jmax) + int64(i)
+			m = int64(j)*int64(Jmax) + int64(i)
 			cost := time.Since(start)
 			GetmG = GetmG + cost
 			break
@@ -485,7 +383,7 @@ func NormalDecrypt(priv *PrivateKey, cipher *Cipher) (*big.Int, string) {
 func GetZS(c *KoblitzCurve, zs []*FieldVal, fmGx *FieldVal, start int, end int) {
 	for i := start; i < end; i++ {
 		ft2x := T2x[i]
-		zs[i] = c.Getz3(fmGx, ft2x)
+		zs[i] = c.Getz3(fmGx, &ft2x)
 	}
 }
 
@@ -542,9 +440,9 @@ func ReadT1() {
 
 func ReadT2() {
 	var j int64 = 1
-	t1lastx, t1lasty := c.ScalarMult(c.Gx, c.Gy, big.NewInt(int64(jmax)).Bytes())
+	t1lastx, t1lasty := c.ScalarMult(c.Gx, c.Gy, big.NewInt(int64(Jmax)).Bytes())
 	t2x, t2y := c.ScalarMult(t1lastx, t1lasty, zero.Bytes())
-	for ; j < int64(imax); j++ {
+	for ; j < int64(Imax); j++ {
 		if j >= 1 {
 			t2x, t2y = c.Add(t2x, t2y, t1lastx, t1lasty)
 		}
@@ -552,8 +450,8 @@ func ReadT2() {
 		inv_t2y.Add(c.P, inv_t2y)
 		inv_t2y.Sub(inv_t2y, t2y)
 		ft2x, ft2y := c.bigAffineToField(t2x, inv_t2y)
-		T2x[j] = ft2x
-		T2y[j] = ft2y
+		T2x[j] = *ft2x
+		T2y[j] = *ft2y
 	}
 }
 
@@ -575,7 +473,7 @@ func ReadT1AsMap() {
 			line = strings.Replace(line, "\n", "", -1)
 			x, _ = new(big.Int).SetString(line, 10)
 			MapT1[x.Uint64()] = uint32(i)
-			if i == int64(jmax) {
+			if i == int64(Jmax) {
 				file.Close()
 				break
 			}
@@ -596,7 +494,7 @@ func PathExists(path string) (bool, error) {
 }
 
 func ReadT1frombin() {
-	path := "../genlist/Tx24.bin"
+	path := "/home/lgw/go/src/github.com/cuckoobtcec/genlist/T1.bin"
 	isexist, _ := PathExists(path)
 	if isexist == true {
 		T1.Load(path)
@@ -610,9 +508,9 @@ func init() {
 		ReadT1frombin()
 	}
 	var j int64 = 0
-	t1lastx, t1lasty := c.ScalarMult(c.Gx, c.Gy, big.NewInt(int64(jmax*2)).Bytes())
+	t1lastx, t1lasty := c.ScalarMult(c.Gx, c.Gy, big.NewInt(int64(Jmax*2)).Bytes())
 	t2x, t2y := c.ScalarMult(t1lastx, t1lasty, one.Bytes())
-	for ; j < int64(imax); j++ {
+	for ; j < int64(Imax); j++ {
 		//fmt.Printf("%d\n", j)
 		if j >= 1 {
 			t2x, t2y = c.Add(t2x, t2y, t1lastx, t1lasty)
@@ -621,8 +519,8 @@ func init() {
 		inv_t2y.Add(c.P, inv_t2y)
 		inv_t2y.Sub(inv_t2y, t2y)
 		ft2x, ft2y := c.bigAffineToField(t2x, inv_t2y)
-		T2x[j] = ft2x
-		T2y[j] = ft2y
+		T2x[j] = *ft2x
+		T2y[j] = *ft2y
 	}
 
 }

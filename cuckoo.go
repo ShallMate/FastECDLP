@@ -16,22 +16,17 @@ type Key uint32
 type Value uint32
 
 type Op_Cuckoo struct {
-	Table_v []Value
-	Table_k []Key
+	Table_v [cuckoolen]Value
+	Table_k [cuckoolen]Key
 	// Hash_index []uint8
 	nentries int
 	maxsize  Hash
 }
 
-func Op_NewCuckoo(logsize int) *Op_Cuckoo {
-	nentries := (1 << uint(logsize))
-	size := int(float64(nentries) * 1.3)
+func Op_NewCuckoo() *Op_Cuckoo {
 	c := &Op_Cuckoo{
-		Table_v: make([]Value, size, size),
-		Table_k: make([]Key, size, size),
-		// Hash_index: make([]uint8, size),
-		nentries: nentries,
-		maxsize:  Hash(size),
+		nentries: Jmax,
+		maxsize:  Hash(cuckoolen),
 	}
 	return c
 }
@@ -51,7 +46,7 @@ func (c *Op_Cuckoo) Op_search(X []byte) (v Value, ok bool) {
 	return 0, false
 }
 
-func (c *Op_Cuckoo) Op_insert(data [][]byte) {
+func (c *Op_Cuckoo) Op_insert(data [Jmax][]byte) {
 	Hash_index := make([]uint8, c.maxsize)
 
 	for i := 0; i < c.nentries; i++ {

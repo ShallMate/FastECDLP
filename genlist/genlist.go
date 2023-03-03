@@ -3,26 +3,29 @@ package main
 import (
 	"fmt"
 	"math/big"
+	"runtime"
 
 	btcec "github.com/cuckoobtcec"
 )
 
+var XS [btcec.Jmax][]byte
+
+func Getxbytes(c *btcec.KoblitzCurve, i int64) {
+	x, _ := c.ScalarBaseMult(big.NewInt(i).Bytes())
+	XS[i-1] = x.Bytes()
+}
+
 func main() {
 	maxexp := 1 << btcec.Jlen
-	cuckoo := btcec.Op_NewCuckoo(btcec.Jlen)
-	XS := make([][]byte, maxexp, maxexp)
+	cuckoo := btcec.Op_NewCuckoo()
 	//fmt.Println(cuckoo)
+	runtime.GOMAXPROCS(btcec.Threadnum)
 	c := btcec.S256()
-	var i int64 = 2
-	//var k int64 = 1
-	x, y := c.ScalarBaseMult(big.NewInt(1).Bytes())
-	XS[0] = x.Bytes()
+	var i int64 = 1
 	for ; i <= int64(maxexp); i++ {
-		//fmt.Printf("%d\n", i)
-		x, y = c.Add(x, y, c.Gx, c.Gy)
-		XS[i-1] = x.Bytes()
+		go Getxbytes(c, i)
 	}
 	fmt.Println("Generate XS")
 	cuckoo.Op_insert(XS)
-	cuckoo.Save("./Tx24.bin")
+	cuckoo.Save("./T1.bin")
 }
