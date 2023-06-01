@@ -494,7 +494,7 @@ func PathExists(path string) (bool, error) {
 }
 
 func ReadT1frombin() {
-	path := "/home/lgw/go/src/github.com/cuckoobtcec/genlist/T1.bin"
+	path := "../genlist/T1.bin"
 	isexist, _ := PathExists(path)
 	if isexist == true {
 		T1.Load(path)
