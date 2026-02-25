@@ -11,4 +11,7 @@
 
 If you have any questions, please contact: gw_ling@sjtu.edu.cn; s200201071@stu.cqupt.edu.cn
 
+## C++ Implementation
 
+If you need a C++ implementation, please refer to:  
+[hesm2fp](https://github.com/ShallMate/hesm2fp)
